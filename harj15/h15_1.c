@@ -8,13 +8,13 @@ int main(void) {
     sem_t *semp;
     semp = sem_open("semaphore.smp", O_RDWR|O_CREAT, S_IRUSR|S_IWUSR, 1);
     if (semp == SEM_FAILED) {
-        perror("sem_open :");
+        perror("sem_open");
         exit (1);
     }
 
     fd = open("file.txt", O_CREAT|O_WRONLY,
             S_IRUSR|S_IWUSR);
-    for(i = 0; i < 100000; i++) {
+    for(i = 0; i < 10000; i++) {
         if (sem_wait(semp) < 0) {
             perror("sem_wait");
             exit(0);
@@ -26,5 +26,11 @@ int main(void) {
             exit(0);
         }
     }
+    if (sem_close(semp)<0)
+        perror("sem_close in parent");
+
+    if (sem_unlink("semaphore.smp")<0)
+        perror("sem_unlink in parent");
+
     return 0;
 }

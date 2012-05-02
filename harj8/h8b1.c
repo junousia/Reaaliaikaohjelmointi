@@ -7,17 +7,19 @@
 
 pid_t pid;
 
-void sigalrm_handler(int signo) {
-    write(STDOUT_FILENO, "1", 1);
-    kill(pid, SIGALRM);
+void sighandler(int signo) {
     return;
 }
 
 int main (void) {
     sigset_t sigmask;
+    sigset_t procmask;
+    sigaddset(&procmask, SIGUSR1);
+    sigprocmask(SIG_BLOCK, &procmask, NULL);
     sigfillset(&sigmask);
-    sigdelset(&sigmask, SIGALRM);
-    signal(SIGALRM, sigalrm_handler);
+    sigdelset(&sigmask, SIGUSR1);
+    signal(SIGUSR1, sighandler);
+
     pid = fork();
     if (pid < 0) {
         perror("Fork:");
@@ -29,7 +31,8 @@ int main (void) {
     }
     while(1) {
         sigsuspend(&sigmask);
-        //pause();
+        write(STDOUT_FILENO, "1", 1);
+        kill(pid, SIGUSR1);
     }
     wait(0);
     return 0;

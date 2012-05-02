@@ -5,24 +5,23 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 
-void sigalrm_handler(int signo) {
-    write(STDOUT_FILENO, "2", 1);
-    kill(getppid(), SIGALRM);
+void sighandler(int signo) {
     return;
 }
 
 int main (void) {
     sigset_t sigmask;
+    sigset_t procmask;
+    sigaddset(&procmask, SIGUSR1);
+    sigprocmask(SIG_BLOCK, &procmask, NULL);
     sigfillset(&sigmask);
-    sigdelset(&sigmask, SIGALRM);
-    signal(SIGALRM, sigalrm_handler);
-
-    sleep(2);
-    kill(getppid(), SIGALRM);
+    sigdelset(&sigmask, SIGUSR1);
+    signal(SIGUSR1, sighandler);
 
     while(1) {
+        write(STDOUT_FILENO, "2", 1);
+        kill(getppid(), SIGUSR1);
         sigsuspend(&sigmask);
-        //pause();
     }
     return 0;
 }
