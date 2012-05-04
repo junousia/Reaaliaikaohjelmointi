@@ -14,16 +14,21 @@ int main (void) {
     pid_t pid;
     int fd;
 
+    signal(SIGALRM, alrm_handler);
+    alarm(5);
     pid = fork();
     if (pid < 0) {
         perror("Fork:");
         exit(1);
     }
     if (pid == 0) {
-        alarm(5);
-        execl("./h8bexec", "h8bexec", NULL);
+        printf("child waiting for alarm\n");
+        pause();
         exit(0);
     }
+    printf("parent waiting for alarm\n");
+    pause();
+    printf("waiting for child\n");
     wait(0);
     printf("child exited\n");
     return 0;
