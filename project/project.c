@@ -1,66 +1,86 @@
 #include <stdio.h>
 #include "MultiSensorSimulator.h"
 #include <time.h>
-#include <sys/select.h>
+#include <pthread.h>
 
 #define NUM_OF_DESCRIPTORS 20
 #define VALUES_PER_DESCRIPTOR 5
 
+typedef struct result {
+    long total_diff;
+    long readings;
+    long maximum;
+    long minimum;
+} result_t;
+
+result_t thread_results[NUM_OF_DESCRIPTORS] = {0};
+int sensorDescriptors[NUM_OF_DESCRIPTORS];
+
 /* calculate delta for two timespecs */
 long time_delta(struct timespec start, struct timespec end)
 {
-
     long diff = end.tv_nsec - start.tv_nsec;
     if(diff < 0)
         diff += 1000000000;
     return diff;
 }
 
-int main(int argc, char *argv[]) {
-    int sensorDescriptors[NUM_OF_DESCRIPTORS];
-    Tmeas measurement;
+void* tf(void* parm) {
     struct timespec current_time;
-    int i, j, descriptors_returned, closed = 0, readings = 0;
-    long time_diff = 0, total = 0, minimum = 0, maximum = 0;
-    fd_set fdset;
+    long time_diff;
+    Tmeas measurement;
+    int index = *((int *)parm);
+
+    while(read(sensorDescriptors[index], &measurement, sizeof(Tmeas)) != 0) {
+        clock_gettime(CLOCK_REALTIME, &current_time);
+        time_diff = time_delta(measurement.moment, current_time);
+
+        /* print measurement info */
+        printf("value: %d, latency: %d us\n", measurement.value, time_diff/1000);
+
+        /* increase the amount of measurements read */
+        thread_results[index].readings++;
+
+        /* increase total diff count for counting average */
+        thread_results[index].total_diff += time_diff;
+
+        /* update maximum and minimum, if necessary */
+        if(thread_results[index].minimum == 0 || time_diff < thread_results[index].minimum)
+            thread_results[index].minimum = time_diff;
+        if(thread_results[index].maximum == 0 || time_diff > thread_results[index].maximum)
+            thread_results[index].maximum = time_diff;
+    }
+    pthread_exit(&thread_results[index]);
+}
+
+int main(int argc, char *argv[]) {
+    pthread_t threads[NUM_OF_DESCRIPTORS];
+    int id, i;
+    long readings = 0, total = 0, minimum = 0, maximum = 0;
+    result_t* result;
 
     StartSimulator(sensorDescriptors, VALUES_PER_DESCRIPTOR);
 
-    FD_ZERO(&fdset);
-
-    while(closed <= NUM_OF_DESCRIPTORS) {
-        for(i = 0; i < NUM_OF_DESCRIPTORS; i++) {
-            FD_SET(sensorDescriptors[i], &fdset);
-        }
-        descriptors_returned = select(sensorDescriptors[NUM_OF_DESCRIPTORS - 1] + 1, &fdset, NULL, NULL, NULL);
-
-        if(descriptors_returned) {
-            for(j = 0; j < NUM_OF_DESCRIPTORS; j++) {
-                if(FD_ISSET(sensorDescriptors[j], &fdset)) {
-                    if(read(sensorDescriptors[j], &measurement, sizeof(Tmeas)) <= 0) {
-                        close(sensorDescriptors[j]);
-                        printf("   * descriptor %d closed\n", j);
-                        closed++;
-                    }
-                    else {
-                        clock_gettime(CLOCK_REALTIME, &current_time);
-                        time_diff = time_delta(measurement.moment, current_time);
-                        printf("value: %d ", measurement.value);
-                        printf("timediff: %d ns\n", time_diff);
-                        readings++;
-
-                        /* increase total diff count for counting average */
-                        total += time_diff;
-
-                        /* update maximum and minimum, if necessary */
-                        if(minimum == 0 || time_diff < minimum)
-                            minimum = time_diff;
-                        if(maximum == 0 || time_diff > maximum)
-                            maximum = time_diff;
-                    }
-                }
-            }
+    /* create one thread for each descriptor */
+    for(i = 0; i < NUM_OF_DESCRIPTORS; i++) {
+        if(pthread_create(&threads[i], NULL, tf, (void *)&i)) {
+            perror("pthread_create");
+            break;
         }
     }
-    printf("all measurements done, number of readings: %d\n  average: %d\n  minimum: %d\n  maximum: %d\n", readings, total / (VALUES_PER_DESCRIPTOR*NUM_OF_DESCRIPTORS), minimum, maximum);
+    for(i = 0; i < NUM_OF_DESCRIPTORS; i++) {
+        pthread_join(threads[i], (void**)&result);
+
+        /* increment total counts */
+        readings += result->readings;
+        total += result->total_diff;
+
+        /* update maximum and minimum, if necessary */
+        if(minimum == 0 || result->minimum < minimum)
+            minimum = result->minimum;
+        if(maximum == 0 || result->maximum > maximum)
+            maximum = result->maximum;
+    }
+    printf("\nDone.\n");
+    printf("\n******* Statistics *******\n  number of readings %d\n  average latency %d microseconds\n  maximum latency %d microseconds\n  minimum latency %d microseconds\n**************************\n", readings, total/(NUM_OF_DESCRIPTORS*VALUES_PER_DESCRIPTOR)/1000, maximum/1000, minimum/1000);
 }
