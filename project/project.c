@@ -4,7 +4,7 @@
 #include <pthread.h>
 
 #define NUM_OF_DESCRIPTORS 20
-#define VALUES_PER_DESCRIPTOR 5
+#define VALUES_PER_DESCRIPTOR 50
 
 typedef struct result {
     long total_diff;
@@ -30,13 +30,12 @@ void* tf(void* parm) {
     long time_diff;
     Tmeas measurement;
     int index = *((int *)parm);
-
     while(read(sensorDescriptors[index], &measurement, sizeof(Tmeas)) != 0) {
         clock_gettime(CLOCK_REALTIME, &current_time);
         time_diff = time_delta(measurement.moment, current_time);
 
         /* print measurement info */
-        printf("value: %d, latency: %d us\n", measurement.value, time_diff/1000);
+        printf("thread: %d, value: %d, latency: %d us\n", index, measurement.value, time_diff/1000);
 
         /* increase the amount of measurements read */
         thread_results[index].readings++;
@@ -68,6 +67,7 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
+
     for(i = 0; i < NUM_OF_DESCRIPTORS; i++) {
         pthread_join(threads[i], (void**)&result);
 
