@@ -4,9 +4,11 @@
 #include <pthread.h>
 
 #define NUM_OF_DESCRIPTORS 20
-#define VALUES_PER_DESCRIPTOR 50
+#define VALUES_PER_DESCRIPTOR 5
 
 typedef struct result {
+    int  id;
+    int  descriptor;
     long total_diff;
     long readings;
     long maximum;
@@ -14,14 +16,17 @@ typedef struct result {
 } result_t;
 
 result_t thread_results[NUM_OF_DESCRIPTORS] = {0};
-int sensorDescriptors[NUM_OF_DESCRIPTORS];
 
 /* calculate delta for two timespecs */
 long time_delta(struct timespec start, struct timespec end)
 {
     long diff = end.tv_nsec - start.tv_nsec;
+
     if(diff < 0)
         diff += 1000000000;
+
+    diff += (end.tv_sec - start.tv_sec) * 1000000000;
+
     return diff;
 }
 
@@ -29,27 +34,29 @@ void* tf(void* parm) {
     struct timespec current_time;
     long time_diff;
     Tmeas measurement;
-    int index = *((int *)parm);
-    while(read(sensorDescriptors[index], &measurement, sizeof(Tmeas)) != 0) {
+    result_t* result = ((result_t *)parm);
+
+    while(read(result->descriptor, &measurement, sizeof(Tmeas)) != 0) {
         clock_gettime(CLOCK_REALTIME, &current_time);
         time_diff = time_delta(measurement.moment, current_time);
 
         /* print measurement info */
-        printf("thread: %d, value: %d, latency: %d us\n", index, measurement.value, time_diff/1000);
+        printf("thread %d, value: %d, latency: %d us\n", result->id, measurement.value, time_diff/1000);
 
         /* increase the amount of measurements read */
-        thread_results[index].readings++;
+        result->readings++;
 
         /* increase total diff count for counting average */
-        thread_results[index].total_diff += time_diff;
+        result->total_diff += time_diff;
 
         /* update maximum and minimum, if necessary */
-        if(thread_results[index].minimum == 0 || time_diff < thread_results[index].minimum)
-            thread_results[index].minimum = time_diff;
-        if(thread_results[index].maximum == 0 || time_diff > thread_results[index].maximum)
-            thread_results[index].maximum = time_diff;
+        if(result->minimum == 0 || time_diff < result->minimum)
+            result->minimum = time_diff;
+        if(result->maximum == 0 || time_diff > result->maximum)
+            result->maximum = time_diff;
     }
-    pthread_exit(&thread_results[index]);
+
+    pthread_exit(result);
 }
 
 int main(int argc, char *argv[]) {
@@ -57,12 +64,15 @@ int main(int argc, char *argv[]) {
     int id, i;
     long readings = 0, total = 0, minimum = 0, maximum = 0;
     result_t* result;
+    int sensorDescriptors[NUM_OF_DESCRIPTORS];
 
     StartSimulator(sensorDescriptors, VALUES_PER_DESCRIPTOR);
 
     /* create one thread for each descriptor */
     for(i = 0; i < NUM_OF_DESCRIPTORS; i++) {
-        if(pthread_create(&threads[i], NULL, tf, (void *)&i)) {
+        thread_results[i].descriptor = sensorDescriptors[i];
+        thread_results[i].id = i;
+        if(pthread_create(&threads[i], NULL, tf, (void *)&thread_results[i])) {
             perror("pthread_create");
             break;
         }
